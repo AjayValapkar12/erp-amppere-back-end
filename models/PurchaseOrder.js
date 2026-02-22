@@ -22,16 +22,8 @@ const purchaseOrderSchema = new mongoose.Schema({
   totalAmount: { type: Number, default: 0 },
   paidAmount: { type: Number, default: 0 },
   outstandingAmount: { type: Number, default: 0 },
-  paymentStatus: {
-    type: String,
-    enum: ['pending', 'partial', 'paid'],
-    default: 'pending'
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'confirmed', 'received', 'cancelled'],
-    default: 'pending'
-  },
+  paymentStatus: { type: String, enum: ['pending', 'partial', 'paid'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'confirmed', 'received', 'cancelled'], default: 'pending' },
   notes: { type: String },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now }
