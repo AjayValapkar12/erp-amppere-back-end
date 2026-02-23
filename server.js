@@ -4,10 +4,62 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const morgan = require('morgan');
+const http = require('http');
+const https = require('https');
 
 const User = require('./models/User');
 
 const app = express();
+
+function pingUrl(url) {
+  return new Promise((resolve, reject) => {
+    try {
+      const client = url.startsWith('https') ? https : http;
+      const req = client.get(url, (res) => {
+        res.resume();
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(res.statusCode);
+          return;
+        }
+        reject(new Error(`Unexpected status code ${res.statusCode}`));
+      });
+
+      req.on('error', reject);
+      req.setTimeout(10000, () => {
+        req.destroy(new Error('Self-ping request timed out'));
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function startSelfPing(port) {
+  const baseUrl =
+    process.env.SELF_PING_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    (process.env.NODE_ENV === 'production' ? null : `http://localhost:${port}`);
+
+  if (!baseUrl) {
+    console.log('Self-ping disabled: set SELF_PING_URL or RENDER_EXTERNAL_URL.');
+    return;
+  }
+
+  const targetUrl = `${baseUrl.replace(/\/+$/, '')}/api/health`;
+  const intervalMs = 15 * 60 * 1000;
+
+  const runPing = async () => {
+    try {
+      const status = await pingUrl(targetUrl);
+      console.log(`Self-ping OK (${status}) -> ${targetUrl}`);
+    } catch (error) {
+      console.error(`Self-ping failed -> ${targetUrl}:`, error.message);
+    }
+  };
+
+  runPing();
+  setInterval(runPing, intervalMs);
+}
 
 /* ======================
    MIDDLEWARE
@@ -102,6 +154,7 @@ mongoose.connect(process.env.MONGODB_URI)
     await createAdminIfNotExists();
 
     app.listen(PORT, () => {
+      startSelfPing(PORT);
       console.log(`🚀 Server running on port ${PORT}`);
     });
   })
