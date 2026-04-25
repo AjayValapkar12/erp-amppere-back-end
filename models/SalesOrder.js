@@ -19,6 +19,7 @@ const salesOrderSchema = new mongoose.Schema({
   customer:    { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
   orderDate:   { type: Date, default: Date.now },
   deliveryDate:{ type: Date },
+  poNumber:    { type: String, default: '' },  // Customer's PO number
   items:       [orderItemSchema],
   subtotal:         { type: Number, default: 0 },
   totalGst:         { type: Number, default: 0 },

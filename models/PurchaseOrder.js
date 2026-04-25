@@ -16,6 +16,9 @@ const purchaseOrderSchema = new mongoose.Schema({
   vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', required: true },
   orderDate: { type: Date, default: Date.now },
   expectedDate: { type: Date },
+  poNumber: { type: String, default: '' },  // Vendor's PO number
+  invoiceNumber: { type: String, default: '' },  // Vendor's invoice number
+  invoiceDate: { type: Date },  // Vendor's invoice date
   items: [purchaseItemSchema],
   subtotal: { type: Number, default: 0 },
   totalGst: { type: Number, default: 0 },

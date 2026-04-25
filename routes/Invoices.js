@@ -177,7 +177,7 @@ router.post('/generate/:orderId', async (req, res) => {
     const invoice = await Invoice.create({
       salesOrder:            order._id,
       saleWithinMaharashtra: saleWithinMH,
-      poNumber:              order.orderNumber,
+      poNumber:              order.poNumber || '',
       poDate:                order.orderDate,
       invoiceDate:           new Date(),
       dateOfSupply:          new Date(),
