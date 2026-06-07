@@ -8,6 +8,7 @@ const http = require('http');
 const https = require('https');
 
 const User = require('./models/User');
+const { startOutstandingReminderScheduler } = require('./services/outstandingReminder');
 
 const app = express();
 
@@ -87,6 +88,7 @@ app.use('/api/payments', require('./routes/payments'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/invoices', require('./routes/Invoices'));
+app.use('/api/reminders', require('./routes/reminders'));
 
 
 /* ======================
@@ -155,6 +157,7 @@ mongoose.connect(process.env.MONGODB_URI)
 
     app.listen(PORT, () => {
       startSelfPing(PORT);
+      startOutstandingReminderScheduler();
       console.log(`🚀 Server running on port ${PORT}`);
     });
   })
