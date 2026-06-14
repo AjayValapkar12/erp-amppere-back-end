@@ -25,9 +25,9 @@ router.get('/stats', async (req, res) => {
       Vendor.countDocuments(),
       SalesOrder.find(),
       PurchaseOrder.find(),
-      SalesOrder.find({ createdAt: { $gte: startOfMonth } }),
+      SalesOrder.find({ orderDate: { $gte: startOfMonth } }),
       PurchaseOrder.find({ createdAt: { $gte: startOfMonth } }),
-      SalesOrder.find().sort('-createdAt').limit(5).populate('customer', 'name'),
+      SalesOrder.find().sort('-orderDate').limit(5).populate('customer', 'name'),
       PurchaseOrder.find().sort('-createdAt').limit(5).populate('vendor', 'name'),
       Payment.find({ type: 'received', paymentDate: { $gte: startOfMonth } }),
       Payment.find({ type: 'made', paymentDate: { $gte: startOfMonth } })
