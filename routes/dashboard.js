@@ -48,7 +48,7 @@ router.get('/stats', async (req, res) => {
       d.setMonth(d.getMonth() - i);
       const start = new Date(d.getFullYear(), d.getMonth(), 1);
       const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-      const monthOrders = salesOrders.filter(o => o.createdAt >= start && o.createdAt <= end);
+      const monthOrders = salesOrders.filter(o => o.orderDate >= start && o.orderDate <= end);
       const monthPOs = purchaseOrders.filter(o => o.createdAt >= start && o.createdAt <= end);
       chartData.push({
         month: start.toLocaleString('default', { month: 'short' }),
