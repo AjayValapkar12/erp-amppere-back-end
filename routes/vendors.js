@@ -69,12 +69,9 @@ router.post('/:id/payment', async (req, res) => {
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
 
     const { amount, paymentMethod, transactionId, notes, paymentDate } = req.body;
-    let remaining = parseFloat(amount);
-
-    if (!remaining || remaining <= 0)
+    const paymentAmount = parseFloat(amount);
+    if (!paymentAmount || paymentAmount <= 0)
       return res.status(400).json({ success: false, message: 'Enter a valid amount' });
-    if (remaining > vendor.outstandingBalance)
-      return res.status(400).json({ success: false, message: 'Payment exceeds vendor outstanding balance' });
 
     // Fetch unpaid/partial orders for this vendor, oldest first
     const orders = await PurchaseOrder.find({
@@ -82,6 +79,15 @@ router.post('/:id/payment', async (req, res) => {
       paymentStatus: { $in: ['pending', 'partial'] }
     }).sort('createdAt');
 
+    const vendorOutstanding = orders.reduce((sum, order) => sum + order.outstandingAmount, 0);
+    if (vendor.outstandingBalance !== vendorOutstanding) {
+      vendor.outstandingBalance = vendorOutstanding;
+    }
+
+    if (paymentAmount > vendorOutstanding)
+      return res.status(400).json({ success: false, message: 'Payment exceeds vendor outstanding balance' });
+
+    let remaining = paymentAmount;
     const updatedOrders = [];
 
     for (const order of orders) {
@@ -102,7 +108,6 @@ router.post('/:id/payment', async (req, res) => {
       await order.save();
       updatedOrders.push(order);
 
-      // Create an individual payment record per order settled
       await Payment.create({
         type: 'made',
         reference: order._id,
@@ -120,10 +125,8 @@ router.post('/:id/payment', async (req, res) => {
       });
     }
 
-    // Deduct total paid from vendor outstanding balance
-    const totalPaid = parseFloat(amount) - remaining; // remaining should be 0 unless orders < balance
-    vendor.outstandingBalance -= totalPaid;
-    if (vendor.outstandingBalance < 0) vendor.outstandingBalance = 0;
+    const totalPaid = paymentAmount - remaining;
+    vendor.outstandingBalance = Math.max(0, vendorOutstanding - totalPaid);
     await vendor.save();
 
     res.json({

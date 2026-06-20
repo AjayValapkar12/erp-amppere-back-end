@@ -44,7 +44,7 @@ router.post('/', async (req, res) => {
     });
     orderData.subtotal = subtotal;
     orderData.totalGst = totalGst;
-    orderData.totalAmount = subtotal + totalGst;
+    orderData.totalAmount = Math.round(subtotal + totalGst);
     orderData.outstandingAmount = orderData.totalAmount;
     const order = await PurchaseOrder.create(orderData);
     await Vendor.findByIdAndUpdate(order.vendor, { $inc: { outstandingBalance: order.totalAmount } });
@@ -54,6 +54,9 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
+    const existingOrder = await PurchaseOrder.findById(req.params.id).populate('vendor');
+    if (!existingOrder) return res.status(404).json({ success: false, message: 'Order not found' });
+
     const orderData = req.body;
     if (orderData.items) {
       let subtotal = 0, totalGst = 0;
@@ -63,18 +66,42 @@ router.put('/:id', async (req, res) => {
         subtotal += amount; totalGst += gstAmount;
         return { ...item, amount, gstAmount };
       });
-      orderData.subtotal = subtotal; orderData.totalGst = totalGst;
-      orderData.totalAmount = subtotal + totalGst;
+      orderData.subtotal = subtotal;
+      orderData.totalGst = totalGst;
+      orderData.totalAmount = Math.round(subtotal + totalGst);
     }
-    const order = await PurchaseOrder.findByIdAndUpdate(req.params.id, orderData, { new: true }).populate('vendor');
-    res.json({ success: true, data: order });
+
+    const oldVendorId = existingOrder.vendor?._id?.toString();
+    const newVendorId = orderData.vendor ? String(orderData.vendor) : oldVendorId;
+    const oldOutstanding = existingOrder.outstandingAmount;
+
+    Object.assign(existingOrder, orderData);
+    await existingOrder.save();
+
+    const updatedOrder = await PurchaseOrder.findById(req.params.id).populate('vendor');
+    const updatedOutstanding = updatedOrder.outstandingAmount;
+
+    if (oldVendorId && newVendorId && oldVendorId !== newVendorId) {
+      await Vendor.findByIdAndUpdate(oldVendorId, { $inc: { outstandingBalance: -oldOutstanding } });
+      await Vendor.findByIdAndUpdate(newVendorId, { $inc: { outstandingBalance: updatedOutstanding } });
+    } else if (updatedOrder.vendor && updatedOutstanding !== oldOutstanding) {
+      await Vendor.findByIdAndUpdate(updatedOrder.vendor._id, { $inc: { outstandingBalance: updatedOutstanding - oldOutstanding } });
+    }
+
+    res.json({ success: true, data: updatedOrder });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
-    const order = await PurchaseOrder.findByIdAndDelete(req.params.id);
+    const order = await PurchaseOrder.findById(req.params.id);
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    if (order.vendor && order.outstandingAmount > 0) {
+      await Vendor.findByIdAndUpdate(order.vendor, { $inc: { outstandingBalance: -order.outstandingAmount } });
+    }
+
+    await PurchaseOrder.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Order deleted' });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
@@ -98,7 +125,8 @@ router.post('/:id/payment', async (req, res) => {
       partyName: order.vendor.name, amount: payAmount, paymentMethod, transactionId, notes,
       paymentDate: paymentDate || new Date(), createdBy: req.user._id
     });
-    res.json({ success: true, data: order, message: 'Payment recorded' });
+    const refreshedOrder = await PurchaseOrder.findById(order._id).populate('vendor');
+    res.json({ success: true, data: refreshedOrder, message: 'Payment recorded' });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
