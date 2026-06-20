@@ -26,9 +26,9 @@ router.get('/stats', async (req, res) => {
       SalesOrder.find(),
       PurchaseOrder.find(),
       SalesOrder.find({ orderDate: { $gte: startOfMonth } }),
-      PurchaseOrder.find({ createdAt: { $gte: startOfMonth } }),
+      PurchaseOrder.find({ orderDate: { $gte: startOfMonth } }),
       SalesOrder.find().sort('-orderDate').limit(5).populate('customer', 'name'),
-      PurchaseOrder.find().sort('-createdAt').limit(5).populate('vendor', 'name'),
+      PurchaseOrder.find().sort('-orderDate').limit(5).populate('vendor', 'name'),
       Payment.find({ type: 'received', paymentDate: { $gte: startOfMonth } }),
       Payment.find({ type: 'made', paymentDate: { $gte: startOfMonth } })
     ]);
@@ -49,7 +49,7 @@ router.get('/stats', async (req, res) => {
       const start = new Date(d.getFullYear(), d.getMonth(), 1);
       const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
       const monthOrders = salesOrders.filter(o => o.orderDate >= start && o.orderDate <= end);
-      const monthPOs = purchaseOrders.filter(o => o.createdAt >= start && o.createdAt <= end);
+      const monthPOs = purchaseOrders.filter(o => o.orderDate >= start && o.orderDate <= end);
       chartData.push({
         month: start.toLocaleString('default', { month: 'short' }),
         sales: monthOrders.reduce((s, o) => s + o.totalAmount, 0),
