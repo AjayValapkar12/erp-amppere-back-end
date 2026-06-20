@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Counter = require('./Counter');
 
 const orderItemSchema = new mongoose.Schema({
   description:       { type: String, required: true },
@@ -45,10 +46,17 @@ const salesOrderSchema = new mongoose.Schema({
 salesOrderSchema.pre('save', async function (next) {
   // Auto-generate order number on first save
   if (!this.orderNumber) {
-    const now      = new Date();
+    // Use an atomic counter per day to avoid duplicate order numbers under concurrency
+    const now = new Date();
     const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-    const count    = await mongoose.model('SalesOrder').countDocuments();
-    this.orderNumber = `SO${datePart}${String(count + 1).padStart(4, '0')}`;
+    const counterId = `SO${datePart}`;
+    const counter = await Counter.findOneAndUpdate(
+      { _id: counterId },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+    const seq = counter.seq || 1;
+    this.orderNumber = `SO${datePart}${String(seq).padStart(4, '0')}`;
   }
 
   // Always recompute outstanding and payment status from source of truth
