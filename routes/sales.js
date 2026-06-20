@@ -186,7 +186,8 @@ router.get('/:id', async (req, res) => {
 // POST create order
 router.post('/', async (req, res) => {
   try {
-    const orderData = { ...req.body, createdBy: req.user._id };
+    const { deliveryDate, ...rest } = req.body;
+    const orderData = { ...rest, createdBy: req.user._id };
 
     const calc              = calcOrderTotals(orderData.items || [], 0);
     orderData.items             = calc.items.map(i => ({ ...i, isDelivered: false, deliveredQuantity: 0 }));
@@ -219,7 +220,7 @@ router.put('/:id', async (req, res) => {
     if (!existing) return res.status(404).json({ success: false, message: 'Order not found' });
 
     const oldOutstandingAmount = existing.outstandingAmount;
-    const orderData            = { ...req.body };
+    const { deliveryDate, ...orderData } = req.body;
 
     if (orderData.items && orderData.items.length > 0) {
       // Always recalculate server-side using existing paidAmount

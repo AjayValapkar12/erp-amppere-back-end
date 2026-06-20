@@ -168,7 +168,7 @@ router.post('/generate/:orderId', async (req, res) => {
 
     const subtotal    = invoiceItems.reduce((s, i) => s + i.taxableValue, 0);
     const totalGst    = invoiceItems.reduce((s, i) => s + i.cgstAmount + i.sgstAmount + i.igstAmount, 0);
-    const totalAmount = subtotal + totalGst;
+    const totalAmount = Math.round(subtotal + totalGst);
 
     const ba      = customer.billingAddress  || {};
     const da      = customer.deliveryAddress || ba;
@@ -223,7 +223,7 @@ router.put('/:id', async (req, res) => {
       data.items       = data.items.map(item => calcItemAmounts(item, data.saleWithinMaharashtra));
       data.subtotal    = data.items.reduce((s, i) => s + i.taxableValue, 0);
       data.totalGst    = data.items.reduce((s, i) => s + i.cgstAmount + i.sgstAmount + i.igstAmount, 0);
-      data.totalAmount = data.subtotal + data.totalGst;
+      data.totalAmount = Math.round(data.subtotal + data.totalGst);
     }
 
     data.updatedAt = new Date();
