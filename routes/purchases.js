@@ -23,6 +23,44 @@ router.get('/', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+router.get('/item-suggestions', async (req, res) => {
+  try {
+    const { q = '' } = req.query;
+
+    const pipeline = [
+      ...(q.trim() ? [{ $match: { 'items.description': { $regex: q.trim(), $options: 'i' } } }] : []),
+      { $unwind: '$items' },
+      ...(q.trim() ? [{ $match: { 'items.description': { $regex: q.trim(), $options: 'i' } } }] : []),
+      {
+        $group: {
+          _id: '$items.description',
+          hsnCode: { $last: '$items.hsnCode' },
+          unit: { $last: '$items.unit' },
+          gstRate: { $last: '$items.gstRate' },
+          lastRate: { $last: '$items.rate' },
+          lastUsed: { $max: '$orderDate' },
+        },
+      },
+      { $sort: { lastUsed: -1, _id: 1 } },
+      { $limit: 20 },
+    ];
+
+    const results = await PurchaseOrder.aggregate(pipeline);
+
+    const suggestions = results.map(r => ({
+      description: r._id,
+      hsnCode: r.hsnCode || '8544',
+      unit: r.unit || 'Mtr',
+      gstRate: r.gstRate || 18,
+      lastRate: r.lastRate || 0,
+    }));
+
+    res.json({ success: true, data: suggestions });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 router.get('/:id', async (req, res) => {
   try {
     const order = await PurchaseOrder.findById(req.params.id).populate('vendor');
