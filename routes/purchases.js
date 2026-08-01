@@ -84,7 +84,18 @@ router.post('/', async (req, res) => {
     orderData.totalGst = totalGst;
     orderData.totalAmount = Math.round(subtotal + totalGst);
     orderData.outstandingAmount = orderData.totalAmount;
-    const order = await PurchaseOrder.create(orderData);
+
+    let order;
+    try {
+      order = await PurchaseOrder.create(orderData);
+    } catch (err) {
+      if (err.code === 11000 && err.keyPattern && err.keyPattern.orderNumber) {
+        order = await PurchaseOrder.create(orderData);
+      } else {
+        throw err;
+      }
+    }
+
     await Vendor.findByIdAndUpdate(order.vendor, { $inc: { outstandingBalance: order.totalAmount } });
     res.status(201).json({ success: true, data: order });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Counter = require('./Counter');
 
 const purchaseItemSchema = new mongoose.Schema({
   description: { type: String, required: true },
@@ -35,12 +36,18 @@ const purchaseOrderSchema = new mongoose.Schema({
 purchaseOrderSchema.pre('save', async function(next) {
   if (!this.orderNumber) {
     const now = new Date();
-    const datePart = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-    const count = await mongoose.model('PurchaseOrder').countDocuments();
-    this.orderNumber = `PO${datePart}${String(count + 1).padStart(4, '0')}`;
+    const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+    const counterId = `PO${datePart}`;
+    const counter = await Counter.findOneAndUpdate(
+      { _id: counterId },
+      { $inc: { seq: 1 } },
+      { new: true, upsert: true }
+    );
+    const seq = counter.seq || 1;
+    this.orderNumber = `PO${datePart}${String(seq).padStart(4, '0')}`;
   }
-  this.outstandingAmount = this.totalAmount - this.paidAmount;
-  if (this.paidAmount >= this.totalAmount) this.paymentStatus = 'paid';
+  this.outstandingAmount = Math.max(0, this.totalAmount - this.paidAmount);
+  if (this.paidAmount >= this.totalAmount && this.totalAmount > 0) this.paymentStatus = 'paid';
   else if (this.paidAmount > 0) this.paymentStatus = 'partial';
   else this.paymentStatus = 'pending';
   next();
