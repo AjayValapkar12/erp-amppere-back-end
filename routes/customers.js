@@ -3,6 +3,7 @@ const router = express.Router();
 const Customer = require('../models/Customer');
 const SalesOrder = require('../models/SalesOrder');
 const Payment = require('../models/Payment');
+const { getAccountByCode, getPaymentAccount, postJournalEntry, getLedgerByParty } = require('../services/ledgerService');
 const { protect } = require('../middleware/auth');
 
 router.use(protect);
@@ -39,11 +40,12 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET customer ledger (outstanding sales orders) — before /:id
+// GET customer ledger entries (debit/credit transaction history)
 router.get('/:id/ledger', async (req, res) => {
   try {
-    const orders = await SalesOrder.find({ customer: req.params.id }).sort('-orderDate');
-    res.json({ success: true, data: orders });
+    const { startDate, endDate, direction } = req.query;
+    const ledger = await getLedgerByParty(req.params.id, 'Customer', { startDate, endDate, direction });
+    res.json({ success: true, data: ledger });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -106,10 +108,16 @@ router.post('/:id/payment', async (req, res) => {
     const customer = await Customer.findById(req.params.id);
     if (!customer) return res.status(404).json({ success: false, message: 'Customer not found' });
 
-    const { amount, paymentMethod, transactionId, notes, paymentDate } = req.body;
+    const {
+      amount,
+      paymentMethod = 'bank_transfer',
+      transactionId = '',
+      notes,
+      paymentDate,
+    } = req.body;
     let remaining = parseFloat(amount);
 
-    if (!remaining || remaining <= 0)
+    if (isNaN(remaining) || remaining <= 0)
       return res.status(400).json({ success: false, message: 'Enter a valid amount' });
     if (remaining > customer.outstandingBalance)
       return res.status(400).json({ success: false, message: 'Amount exceeds customer outstanding balance' });
@@ -163,6 +171,26 @@ router.post('/:id/payment', async (req, res) => {
     customer.outstandingBalance -= totalReceived;
     if (customer.outstandingBalance < 0) customer.outstandingBalance = 0;
     await customer.save();
+
+    const cashAccount = await getPaymentAccount(paymentMethod);
+    const arAccount = await getAccountByCode('1200');
+    await postJournalEntry({
+      date: paymentDate ? new Date(paymentDate) : new Date(),
+      referenceModel: 'Payment',
+      reference: updatedOrders[0]?._id || customer._id,
+      referenceNumber: updatedOrders[0]?.orderNumber || '',
+      paymentMethod,
+      transactionId,
+      description: `Customer payment received for ${customer.name}`,
+      lines: [
+        { account: cashAccount._id, debit: totalReceived },
+        { account: arAccount._id, credit: totalReceived },
+      ],
+      createdBy: req.user._id,
+      party: customer._id,
+      partyModel: 'Customer',
+      partyName: customer.name,
+    });
 
     res.json({
       success:       true,

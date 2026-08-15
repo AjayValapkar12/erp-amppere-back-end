@@ -4,6 +4,7 @@ const SalesOrder = require('../models/SalesOrder');
 const Customer = require('../models/Customer');
 const Payment = require('../models/Payment');
 const Invoice = require('../models/invoice');
+const { getAccountByCode, getPaymentAccount, postJournalEntry } = require('../services/ledgerService');
 const { protect } = require('../middleware/auth');
 
 router.use(protect);
@@ -204,6 +205,31 @@ router.post('/', async (req, res) => {
       $inc: { outstandingBalance: order.totalAmount },
     });
 
+    // Post accounting entries for the sales order
+    const arAccount = await getAccountByCode('1200');
+    const salesAccount = await getAccountByCode('4000');
+    const gstOutputAccount = await getAccountByCode('2200');
+    const journalLines = [
+      { account: arAccount._id, debit: order.totalAmount },
+      { account: salesAccount._id, credit: order.subtotal },
+    ];
+    if (order.totalGst > 0) {
+      journalLines.push({ account: gstOutputAccount._id, credit: order.totalGst });
+    }
+
+    await postJournalEntry({
+      date: order.orderDate,
+      referenceModel: 'SalesOrder',
+      reference: order._id,
+      referenceNumber: order.orderNumber,
+      description: `Sales Order ${order.orderNumber}`,
+      lines: journalLines,
+      createdBy: req.user._id,
+      party: order.customer,
+      partyModel: 'Customer',
+      partyName: order.customer?.name || '',
+    });
+
     res.status(201).json({ success: true, data: order });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -308,7 +334,13 @@ router.post('/:id/payment', async (req, res) => {
     const order = await SalesOrder.findById(req.params.id).populate('customer');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-    const { amount, paymentMethod, transactionId, notes, paymentDate } = req.body;
+    const {
+      amount,
+      paymentMethod = 'bank_transfer',
+      transactionId = '',
+      notes,
+      paymentDate,
+    } = req.body;
     const payAmount = parseFloat(amount);
 
     if (isNaN(payAmount) || payAmount <= 0) {
@@ -328,6 +360,26 @@ router.post('/:id/payment', async (req, res) => {
 
     await Customer.findByIdAndUpdate(order.customer._id, {
       $inc: { outstandingBalance: -payAmount },
+    });
+
+    const cashAccount = await getPaymentAccount(paymentMethod);
+    const arAccount = await getAccountByCode('1200');
+    await postJournalEntry({
+      date: paymentDate ? new Date(paymentDate) : new Date(),
+      referenceModel: 'Payment',
+      reference: order._id,
+      referenceNumber: order.orderNumber,
+      paymentMethod,
+      transactionId,
+      description: `Customer payment for ${order.orderNumber}`,
+      lines: [
+        { account: cashAccount._id, debit: payAmount },
+        { account: arAccount._id, credit: payAmount },
+      ],
+      createdBy: req.user._id,
+      party: order.customer._id,
+      partyModel: 'Customer',
+      partyName: order.customer.name,
     });
 
     await Payment.create({

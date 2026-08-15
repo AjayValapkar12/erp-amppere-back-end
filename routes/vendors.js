@@ -3,6 +3,7 @@ const router = express.Router();
 const Vendor = require('../models/Vendor');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const Payment = require('../models/Payment');
+const { getAccountByCode, getPaymentAccount, postJournalEntry, getLedgerByParty } = require('../services/ledgerService');
 const { protect } = require('../middleware/auth');
 
 router.use(protect);
@@ -22,6 +23,14 @@ router.get('/:id', async (req, res) => {
     const vendor = await Vendor.findById(req.params.id);
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
     res.json({ success: true, data: vendor });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+router.get('/:id/ledger', async (req, res) => {
+  try {
+    const { startDate, endDate, direction } = req.query;
+    const ledger = await getLedgerByParty(req.params.id, 'Vendor', { startDate, endDate, direction });
+    res.json({ success: true, data: ledger });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
@@ -68,9 +77,15 @@ router.post('/:id/payment', async (req, res) => {
     const vendor = await Vendor.findById(req.params.id);
     if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found' });
 
-    const { amount, paymentMethod, transactionId, notes, paymentDate } = req.body;
+    const {
+      amount,
+      paymentMethod = 'bank_transfer',
+      transactionId = '',
+      notes,
+      paymentDate,
+    } = req.body;
     const paymentAmount = parseFloat(amount);
-    if (!paymentAmount || paymentAmount <= 0)
+    if (isNaN(paymentAmount) || paymentAmount <= 0)
       return res.status(400).json({ success: false, message: 'Enter a valid amount' });
 
     // Fetch unpaid/partial orders for this vendor, oldest first
@@ -94,8 +109,8 @@ router.post('/:id/payment', async (req, res) => {
       if (remaining <= 0) break;
 
       const applyAmount = Math.min(remaining, order.outstandingAmount);
-      order.paidAmount += applyAmount;
-      order.outstandingAmount -= applyAmount;
+      order.paidAmount = (order.paidAmount || 0) + applyAmount;
+      order.outstandingAmount = Math.max(0, order.outstandingAmount - applyAmount);
       remaining -= applyAmount;
 
       if (order.outstandingAmount <= 0) {
@@ -128,6 +143,26 @@ router.post('/:id/payment', async (req, res) => {
     const totalPaid = paymentAmount - remaining;
     vendor.outstandingBalance = Math.max(0, vendorOutstanding - totalPaid);
     await vendor.save();
+
+    const cashAccount = await getPaymentAccount(paymentMethod);
+    const apAccount = await getAccountByCode('2100');
+    await postJournalEntry({
+      date: paymentDate ? new Date(paymentDate) : new Date(),
+      referenceModel: 'Payment',
+      reference: updatedOrders[0]?._id || vendor._id,
+      referenceNumber: updatedOrders[0]?.orderNumber || '',
+      paymentMethod,
+      transactionId,
+      description: `Vendor payment to ${vendor.name}`,
+      lines: [
+        { account: apAccount._id, debit: totalPaid },
+        { account: cashAccount._id, credit: totalPaid },
+      ],
+      createdBy: req.user._id,
+      party: vendor._id,
+      partyModel: 'Vendor',
+      partyName: vendor.name,
+    });
 
     res.json({
       success: true,

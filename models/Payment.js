@@ -13,6 +13,11 @@ const paymentSchema = new mongoose.Schema({
   paymentMethod: { type: String, enum: ['cash', 'bank_transfer', 'cheque', 'upi'], default: 'bank_transfer' },
   transactionId: { type: String },
   notes: { type: String },
+  reversed: { type: Boolean, default: false },
+  reversalOf: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
+  reversedAt: { type: Date },
+  synced: { type: Boolean, default: false, description: 'Synced to new PaymentLedger' },
+  syncedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'PaymentLedger', description: 'Reference to synced PaymentLedger entry' },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   createdAt: { type: Date, default: Date.now }
 });

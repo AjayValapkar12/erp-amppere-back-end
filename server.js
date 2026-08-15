@@ -9,6 +9,7 @@ const https = require('https');
 
 const User = require('./models/User');
 const { startOutstandingReminderScheduler } = require('./services/outstandingReminder');
+const { ensureDefaultAccounts } = require('./services/ledgerService');
 
 const app = express();
 
@@ -85,6 +86,8 @@ app.use('/api/vendors', require('./routes/vendors'));
 app.use('/api/sales', require('./routes/sales'));
 app.use('/api/purchases', require('./routes/purchases'));
 app.use('/api/payments', require('./routes/payments'));
+app.use('/api/ledger', require('./routes/ledger'));
+app.use('/api/payment-ledger', require('./routes/paymentLedger'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/invoices', require('./routes/Invoices'));
@@ -154,6 +157,7 @@ mongoose.connect(process.env.MONGODB_URI)
 
     // Create admin only once
     await createAdminIfNotExists();
+    await ensureDefaultAccounts();
 
     app.listen(PORT, () => {
       startSelfPing(PORT);

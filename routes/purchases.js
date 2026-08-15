@@ -3,6 +3,7 @@ const router = express.Router();
 const PurchaseOrder = require('../models/PurchaseOrder');
 const Vendor = require('../models/Vendor');
 const Payment = require('../models/Payment');
+const { getAccountByCode, getPaymentAccount, postJournalEntry } = require('../services/ledgerService');
 const { protect } = require('../middleware/auth');
 
 router.use(protect);
@@ -97,6 +98,31 @@ router.post('/', async (req, res) => {
     }
 
     await Vendor.findByIdAndUpdate(order.vendor, { $inc: { outstandingBalance: order.totalAmount } });
+
+    const apAccount = await getAccountByCode('2100');
+    const purchaseAccount = await getAccountByCode('5000');
+    const gstInputAccount = await getAccountByCode('1400');
+    const journalLines = [
+      { account: purchaseAccount._id, debit: order.subtotal },
+    ];
+    if (order.totalGst > 0) {
+      journalLines.push({ account: gstInputAccount._id, debit: order.totalGst });
+    }
+    journalLines.push({ account: apAccount._id, credit: order.totalAmount });
+
+    await postJournalEntry({
+      date: order.orderDate,
+      referenceModel: 'PurchaseOrder',
+      reference: order._id,
+      referenceNumber: order.orderNumber,
+      description: `Purchase Order ${order.orderNumber}`,
+      lines: journalLines,
+      createdBy: req.user._id,
+      party: order.vendor,
+      partyModel: 'Vendor',
+      partyName: order.vendor?.name || '',
+    });
+
     res.status(201).json({ success: true, data: order });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
@@ -159,24 +185,72 @@ router.post('/:id/payment', async (req, res) => {
   try {
     const order = await PurchaseOrder.findById(req.params.id).populate('vendor');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
-    const { amount, paymentMethod, transactionId, notes, paymentDate } = req.body;
+
+    const {
+      amount,
+      paymentMethod = 'bank_transfer',
+      transactionId = '',
+      notes,
+      paymentDate,
+    } = req.body;
+
     const payAmount = parseFloat(amount);
-    if (payAmount > order.outstandingAmount) return res.status(400).json({ success: false, message: 'Payment exceeds outstanding' });
-    order.paidAmount += payAmount;
-    order.outstandingAmount -= payAmount;
+    if (isNaN(payAmount) || payAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid payment amount' });
+    }
+    if (payAmount > order.outstandingAmount + 0.001) {
+      return res.status(400).json({ success: false, message: 'Payment exceeds outstanding' });
+    }
+
+    order.paidAmount = (order.paidAmount || 0) + payAmount;
+    order.outstandingAmount = Math.max(0, order.totalAmount - order.paidAmount);
     if (order.outstandingAmount <= 0) order.paymentStatus = 'paid';
     else if (order.paidAmount > 0) order.paymentStatus = 'partial';
     await order.save();
+
     await Vendor.findByIdAndUpdate(order.vendor._id, { $inc: { outstandingBalance: -payAmount } });
-    await Payment.create({
-      type: 'made', reference: order._id, referenceModel: 'PurchaseOrder',
-      referenceNumber: order.orderNumber, party: order.vendor._id, partyModel: 'Vendor',
-      partyName: order.vendor.name, amount: payAmount, paymentMethod, transactionId, notes,
-      paymentDate: paymentDate || new Date(), createdBy: req.user._id
+
+    const cashAccount = await getPaymentAccount(paymentMethod);
+    const apAccount = await getAccountByCode('2100');
+    await postJournalEntry({
+      date: paymentDate ? new Date(paymentDate) : new Date(),
+      referenceModel: 'Payment',
+      reference: order._id,
+      referenceNumber: order.orderNumber,
+      paymentMethod,
+      transactionId,
+      description: `Payment to vendor for ${order.orderNumber}`,
+      lines: [
+        { account: apAccount._id, debit: payAmount },
+        { account: cashAccount._id, credit: payAmount },
+      ],
+      createdBy: req.user._id,
+      party: order.vendor._id,
+      partyModel: 'Vendor',
+      partyName: order.vendor.name,
     });
+
+    await Payment.create({
+      type: 'made',
+      reference: order._id,
+      referenceModel: 'PurchaseOrder',
+      referenceNumber: order.orderNumber,
+      party: order.vendor._id,
+      partyModel: 'Vendor',
+      partyName: order.vendor.name,
+      amount: payAmount,
+      paymentMethod,
+      transactionId,
+      notes,
+      paymentDate: paymentDate || new Date(),
+      createdBy: req.user._id,
+    });
+
     const refreshedOrder = await PurchaseOrder.findById(order._id).populate('vendor');
     res.json({ success: true, data: refreshedOrder, message: 'Payment recorded' });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 module.exports = router;
