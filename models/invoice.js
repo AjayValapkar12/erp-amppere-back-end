@@ -46,6 +46,7 @@ const invoiceSchema = new mongoose.Schema({
   items:            [invoiceItemSchema],
   subtotal:         { type: Number, default: 0 },
   totalGst:         { type: Number, default: 0 },
+  totalAmountOverride: { type: Number, default: null },
   totalAmount:      { type: Number, default: 0 },
   freightCharges:   { type: String, default: 'nil' },
   packingCharges:   { type: String, default: 'nil' },

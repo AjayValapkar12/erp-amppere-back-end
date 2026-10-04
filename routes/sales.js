@@ -173,6 +173,133 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET order payment history. Match by both order ID and order number because
+// older payment records were not consistent about their reference fields.
+router.get('/:id/payment-history', async (req, res) => {
+  try {
+    const order = await SalesOrder.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    const payments = await Payment.find({
+      $or: [
+        { reference: order._id },
+        { referenceNumber: order.orderNumber },
+      ],
+      type: 'received',
+      reversed: { $ne: true },
+    }).sort({ paymentDate: -1, createdAt: -1 });
+
+    const recordedAmount = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const untrackedAmount = Math.max(0, Number(order.paidAmount || 0) - recordedAmount);
+
+    res.json({
+      success: true,
+      data: {
+        payments,
+        untrackedAmount: Math.round((untrackedAmount + Number.EPSILON) * 100) / 100,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Recover an unmatched historical paid balance and reverse it with a complete
+// payment/reversal audit trail. A payment method is required because the old
+// receipt record did not retain that information.
+router.post('/:id/payment-history/reverse-untracked', async (req, res) => {
+  try {
+    const order = await SalesOrder.findById(req.params.id).populate('customer');
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+
+    const paymentMethod = req.body.paymentMethod;
+    if (!['cash', 'bank_transfer', 'cheque', 'upi'].includes(paymentMethod)) {
+      return res.status(400).json({ success: false, message: 'Select the original payment method before reversing this untracked amount.' });
+    }
+
+    const receipts = await Payment.find({
+      $or: [{ reference: order._id }, { referenceNumber: order.orderNumber }],
+      type: 'received',
+      reversed: { $ne: true },
+    });
+    const recordedAmount = receipts.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const untrackedAmount = Math.max(0, Number(order.paidAmount || 0) - recordedAmount);
+    if (untrackedAmount <= 0.009) {
+      return res.status(409).json({ success: false, message: 'There is no untracked paid amount to reverse. Refresh payment history.' });
+    }
+
+    const amount = Math.round((untrackedAmount + Number.EPSILON) * 100) / 100;
+    const reconstructedPayment = await Payment.create({
+      type: 'received',
+      reference: order._id,
+      referenceModel: 'SalesOrder',
+      referenceNumber: order.orderNumber,
+      party: order.customer._id,
+      partyModel: 'Customer',
+      partyName: order.customer.name,
+      amount,
+      paymentMethod,
+      notes: 'Recovered from the order paid balance; original payment record was missing.',
+      createdBy: req.user._id,
+    });
+
+    order.paidAmount = Math.max(0, Number(order.paidAmount || 0) - amount);
+    order.outstandingAmount = Math.max(0, Number(order.totalAmount || 0) - order.paidAmount);
+    order.paymentStatus = order.paidAmount >= order.totalAmount
+      ? 'paid'
+      : order.paidAmount > 0 ? 'partial' : 'pending';
+    await order.save();
+
+    order.customer.outstandingBalance = Number(order.customer.outstandingBalance || 0) + amount;
+    await order.customer.save();
+
+    const cashAccount = await getPaymentAccount(paymentMethod);
+    const arAccount = await getAccountByCode('1200');
+    await postJournalEntry({
+      date: new Date(),
+      referenceModel: 'Payment',
+      reference: reconstructedPayment._id,
+      referenceNumber: order.orderNumber,
+      paymentMethod,
+      description: `Reversal of recovered payment for ${order.orderNumber}`,
+      lines: [
+        { account: arAccount._id, debit: amount },
+        { account: cashAccount._id, credit: amount },
+      ],
+      createdBy: req.user._id,
+      party: order.customer._id,
+      partyModel: 'Customer',
+      partyName: order.customer.name,
+    });
+
+    reconstructedPayment.reversed = true;
+    reconstructedPayment.reversalOf = reconstructedPayment._id;
+    reconstructedPayment.reversedAt = new Date();
+    await reconstructedPayment.save();
+    await Payment.create({
+      type: 'made',
+      reference: order._id,
+      referenceModel: 'SalesOrder',
+      referenceNumber: order.orderNumber,
+      party: order.customer._id,
+      partyModel: 'Customer',
+      partyName: order.customer.name,
+      amount,
+      paymentDate: new Date(),
+      paymentMethod,
+      notes: `Reversal of recovered untracked payment ${reconstructedPayment._id}`,
+      reversed: true,
+      reversalOf: reconstructedPayment._id,
+      reversedAt: new Date(),
+      createdBy: req.user._id,
+    });
+
+    res.json({ success: true, data: { order, reversedAmount: amount } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // GET single order
 router.get('/:id', async (req, res) => {
   try {

@@ -23,6 +23,10 @@ function calcItemAmounts(item, saleWithinMH) {
   return { ...item, totalValue, taxableValue, cgstRate, cgstAmount, sgstRate, sgstAmount, igstRate, igstAmount };
 }
 
+function roundMoney(amount) {
+  return Math.round((amount + Number.EPSILON) * 100) / 100;
+}
+
 /**
  * After an invoice is saved, push edited rate/qty back into the linked SalesOrder
  * for delivered items only, recompute SO totals, then adjust customer outstanding by delta.
@@ -30,7 +34,7 @@ function calcItemAmounts(item, saleWithinMH) {
  * FIX: Original used falsy check `soItem.amount || calc` which would wrongly
  * recalculate when amount was a legitimate 0. Now uses explicit null/undefined check.
  */
-async function syncOrderAndCustomer(orderId, invoiceItems) {
+async function syncOrderAndCustomer(orderId, invoiceItems, invoiceAdjustment = 0) {
   const order = await SalesOrder.findById(orderId);
   if (!order) return;
 
@@ -66,7 +70,7 @@ async function syncOrderAndCustomer(orderId, invoiceItems) {
 
   order.subtotal          = newSubtotal;
   order.totalGst          = newTotalGst;
-  order.totalAmount       = newSubtotal + newTotalGst;
+  order.totalAmount       = roundMoney(newSubtotal + newTotalGst + invoiceAdjustment);
   order.outstandingAmount = Math.max(0, order.totalAmount - (order.paidAmount || 0));
 
   if ((order.paidAmount || 0) >= order.totalAmount && order.totalAmount > 0) {
@@ -218,12 +222,24 @@ router.put('/:id', async (req, res) => {
   try {
     const data = { ...req.body };
 
-    // Always recalculate server-side — never trust client-sent totals
+    // Always recalculate line amounts server-side; retain only a validated
+    // explicit invoice-total override supplied by the user.
     if (data.items && data.items.length > 0) {
       data.items       = data.items.map(item => calcItemAmounts(item, data.saleWithinMaharashtra));
       data.subtotal    = data.items.reduce((s, i) => s + i.taxableValue, 0);
       data.totalGst    = data.items.reduce((s, i) => s + i.cgstAmount + i.sgstAmount + i.igstAmount, 0);
-      data.totalAmount = Math.round(data.subtotal + data.totalGst);
+      const calculatedTotal = Math.round(data.subtotal + data.totalGst);
+      const rawOverride = data.totalAmountOverride;
+      if (rawOverride === '' || rawOverride === null || rawOverride === undefined) {
+        data.totalAmountOverride = null;
+      } else {
+        const override = Number(rawOverride);
+        if (!Number.isFinite(override) || override < 0) {
+          return res.status(400).json({ success: false, message: 'Invoice total must be a valid non-negative amount.' });
+        }
+        data.totalAmountOverride = roundMoney(override);
+      }
+      data.totalAmount = data.totalAmountOverride ?? calculatedTotal;
     }
 
     data.updatedAt = new Date();
@@ -233,7 +249,9 @@ router.put('/:id', async (req, res) => {
 
     // Push changes back to linked SO and cascade to customer outstanding
     if (invoice.salesOrder) {
-      await syncOrderAndCustomer(invoice.salesOrder.toString(), invoice.items);
+      const calculatedTotal = Math.round(invoice.subtotal + invoice.totalGst);
+      const invoiceAdjustment = Number(invoice.totalAmount || 0) - calculatedTotal;
+      await syncOrderAndCustomer(invoice.salesOrder.toString(), invoice.items, invoiceAdjustment);
     }
 
     res.json({ success: true, data: invoice, message: 'Invoice saved and order totals synced' });

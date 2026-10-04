@@ -104,7 +104,11 @@ router.get('/', async (req, res) => {
     if (referenceModel) query.referenceModel = referenceModel;
     if (party) query.party = party;
     if (partyModel) query.partyModel = partyModel;
-    if (reversed !== undefined) query.reversed = reversed === 'true';
+    if (reversed === 'true') query.reversed = true;
+    // Legacy payment records predate the `reversed` field and have no value
+    // for it. Include those as active payments when the client requests
+    // non-reversed history; `{ reversed: false }` alone excludes missing fields.
+    else if (reversed === 'false') query.reversed = { $ne: true };
     if (startDate || endDate) {
       query.paymentDate = {};
       if (startDate) query.paymentDate.$gte = new Date(startDate);
