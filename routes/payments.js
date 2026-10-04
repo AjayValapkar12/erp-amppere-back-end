@@ -21,16 +21,25 @@ async function reversePaymentEntry(payment, userId) {
   if (payment.referenceModel === 'SalesOrder') {
     const order = await SalesOrder.findById(payment.reference).populate('customer');
     if (!order) throw new Error('Linked sales order not found');
+    if (!order.customer) throw new Error('Linked customer not found; restore or re-link the customer before reversing this payment');
     const customer = await Customer.findById(order.customer._id);
     if (!customer) throw new Error('Linked customer not found');
 
-    order.paidAmount = Math.max(0, (order.paidAmount || 0) - amount);
-    order.outstandingAmount = Math.max(0, order.totalAmount - order.paidAmount);
-    order.paymentStatus = order.paidAmount >= order.totalAmount ? 'paid' : order.paidAmount > 0 ? 'partial' : 'pending';
-    await order.save();
+    // A failed earlier recovery request may already have restored the order
+    // and customer balances before it failed to create its journal entry.
+    // Resume that reversal without applying the balance changes twice.
+    const wasRecoveryPartiallyApplied =
+      (payment.notes || '').startsWith('Recovered from the order paid balance;') &&
+      Number(order.paidAmount || 0) < amount;
+    if (!wasRecoveryPartiallyApplied) {
+      order.paidAmount = Math.max(0, (order.paidAmount || 0) - amount);
+      order.outstandingAmount = Math.max(0, order.totalAmount - order.paidAmount);
+      order.paymentStatus = order.paidAmount >= order.totalAmount ? 'paid' : order.paidAmount > 0 ? 'partial' : 'pending';
+      await order.save();
 
-    customer.outstandingBalance = (customer.outstandingBalance || 0) + amount;
-    await customer.save();
+      customer.outstandingBalance = (customer.outstandingBalance || 0) + amount;
+      await customer.save();
+    }
 
     const cashAccount = await getPaymentAccount(payment.paymentMethod);
     const arAccount = await getAccountByCode('1200');

@@ -6,6 +6,12 @@ const DEFAULT_ACCOUNTS = [
   { code: '1020', name: 'Bank Transfer', type: 'Asset', normalBalance: 'Debit' },
   { code: '1030', name: 'UPI', type: 'Asset', normalBalance: 'Debit' },
   { code: '1040', name: 'Cheque', type: 'Asset', normalBalance: 'Debit' },
+  { code: '1200', name: 'Accounts Receivable', type: 'Asset', normalBalance: 'Debit' },
+  { code: '1400', name: 'GST Input Tax', type: 'Asset', normalBalance: 'Debit' },
+  { code: '2100', name: 'Accounts Payable', type: 'Liability', normalBalance: 'Credit' },
+  { code: '2200', name: 'GST Output Tax', type: 'Liability', normalBalance: 'Credit' },
+  { code: '4000', name: 'Sales Revenue', type: 'Income', normalBalance: 'Credit' },
+  { code: '5000', name: 'Purchases', type: 'Expense', normalBalance: 'Debit' },
 ];
 
 async function getOrCreateAccount({ code, name, type, normalBalance }) {

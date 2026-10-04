@@ -211,6 +211,9 @@ router.post('/:id/payment-history/reverse-untracked', async (req, res) => {
   try {
     const order = await SalesOrder.findById(req.params.id).populate('customer');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (!order.customer) {
+      return res.status(409).json({ success: false, message: 'This order is not linked to an existing customer. Restore or re-link the customer before reversing payment.' });
+    }
 
     const paymentMethod = req.body.paymentMethod;
     if (!['cash', 'bank_transfer', 'cheque', 'upi'].includes(paymentMethod)) {
@@ -226,6 +229,14 @@ router.post('/:id/payment-history/reverse-untracked', async (req, res) => {
     const untrackedAmount = Math.max(0, Number(order.paidAmount || 0) - recordedAmount);
     if (untrackedAmount <= 0.009) {
       return res.status(409).json({ success: false, message: 'There is no untracked paid amount to reverse. Refresh payment history.' });
+    }
+
+    const [cashAccount, arAccount] = await Promise.all([
+      getPaymentAccount(paymentMethod),
+      getAccountByCode('1200'),
+    ]);
+    if (!cashAccount || !arAccount) {
+      return res.status(503).json({ success: false, message: 'Required accounting accounts are unavailable. Restart the backend after updating it, then retry.' });
     }
 
     const amount = Math.round((untrackedAmount + Number.EPSILON) * 100) / 100;
@@ -253,8 +264,6 @@ router.post('/:id/payment-history/reverse-untracked', async (req, res) => {
     order.customer.outstandingBalance = Number(order.customer.outstandingBalance || 0) + amount;
     await order.customer.save();
 
-    const cashAccount = await getPaymentAccount(paymentMethod);
-    const arAccount = await getAccountByCode('1200');
     await postJournalEntry({
       date: new Date(),
       referenceModel: 'Payment',
