@@ -13,14 +13,14 @@ function calcItemAmounts(item, saleWithinMH) {
   const totalValue   = (item.quantity || 0) * (item.rate || 0);
   const discount     = item.discount || 0;
   const taxableValue = totalValue - discount;
-  const gstRate      = item.gstRate || 18;
+  const gstRate      = (item.gstRate !== undefined && item.gstRate !== null && item.gstRate !== '' && !isNaN(parseFloat(item.gstRate))) ? parseFloat(item.gstRate) : 18;
   const cgstRate     = saleWithinMH ? gstRate / 2 : 0;
   const sgstRate     = saleWithinMH ? gstRate / 2 : 0;
   const igstRate     = saleWithinMH ? 0 : gstRate;
   const cgstAmount   = saleWithinMH ? (taxableValue * cgstRate) / 100 : 0;
   const sgstAmount   = saleWithinMH ? (taxableValue * sgstRate) / 100 : 0;
   const igstAmount   = !saleWithinMH ? (taxableValue * igstRate) / 100 : 0;
-  return { ...item, totalValue, taxableValue, cgstRate, cgstAmount, sgstRate, sgstAmount, igstRate, igstAmount };
+  return { ...item, gstRate, totalValue, taxableValue, cgstRate, cgstAmount, sgstRate, sgstAmount, igstRate, igstAmount };
 }
 
 function roundMoney(amount) {
@@ -166,7 +166,7 @@ router.post('/generate/:orderId', async (req, res) => {
         quantity:    item.quantity,
         rate:        item.rate,
         discount:    0,
-        gstRate:     item.gstRate || 18,
+        gstRate:     (item.gstRate !== undefined && item.gstRate !== null && item.gstRate !== '' && !isNaN(parseFloat(item.gstRate))) ? parseFloat(item.gstRate) : 18,
       }, saleWithinMH)
     );
 
@@ -179,6 +179,7 @@ router.post('/generate/:orderId', async (req, res) => {
     const fmtAddr = a => [a.street, a.city, a.state, a.pincode].filter(Boolean).join(', ');
 
     const invoice = await Invoice.create({
+      invoiceTitle:          req.body.invoiceTitle || 'GST TAX INVOICE',
       salesOrder:            order._id,
       saleWithinMaharashtra: saleWithinMH,
       poNumber:              order.poNumber || '',

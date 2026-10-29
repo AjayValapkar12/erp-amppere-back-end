@@ -15,10 +15,11 @@ function calcOrderTotals(items, paidAmount = 0) {
   let subtotal = 0, totalGst = 0;
   const mapped = items.map(item => {
     const amount    = (parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0);
-    const gstAmount = (amount * (parseFloat(item.gstRate) || 18)) / 100;
+    const gstRate = (item.gstRate !== undefined && item.gstRate !== null && item.gstRate !== '' && !isNaN(parseFloat(item.gstRate))) ? parseFloat(item.gstRate) : 18;
+    const gstAmount = (amount * gstRate) / 100;
     subtotal += amount;
     totalGst += gstAmount;
-    return { ...item, amount, gstAmount };
+    return { ...item, gstRate, amount, gstAmount };
   });
   const totalAmount       = subtotal + totalGst;
   const outstandingAmount = Math.max(0, totalAmount - paidAmount);
@@ -29,7 +30,7 @@ function calcInvoiceItemFromSO(soItem, saleWithinMH) {
   const totalValue   = (parseFloat(soItem.quantity) || 0) * (parseFloat(soItem.rate) || 0);
   const discount     = 0;
   const taxableValue = totalValue - discount;
-  const gstRate      = parseFloat(soItem.gstRate) || 18;
+  const gstRate      = (soItem.gstRate !== undefined && soItem.gstRate !== null && soItem.gstRate !== '' && !isNaN(parseFloat(soItem.gstRate))) ? parseFloat(soItem.gstRate) : 18;
   const cgstRate     = saleWithinMH ? gstRate / 2 : 0;
   const sgstRate     = saleWithinMH ? gstRate / 2 : 0;
   const igstRate     = saleWithinMH ? 0 : gstRate;

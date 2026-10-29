@@ -20,6 +20,7 @@ const invoiceItemSchema = new mongoose.Schema({
 });
 
 const invoiceSchema = new mongoose.Schema({
+  invoiceTitle:          { type: String, default: 'GST TAX INVOICE' },
   invoiceNumber:         { type: String, unique: true },
   salesOrder:            { type: mongoose.Schema.Types.ObjectId, ref: 'SalesOrder' },
   invoiceDate:           { type: Date, default: Date.now },

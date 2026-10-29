@@ -1,4 +1,15 @@
 require('dotenv').config();
+const dns = require('dns');
+
+if (process.env.MONGODB_URI && process.env.MONGODB_URI.startsWith('mongodb+srv')) {
+  try {
+    const customDns = process.env.DNS_SERVERS ? process.env.DNS_SERVERS.split(',').map(s => s.trim()) : ['8.8.8.8', '1.1.1.1'];
+    dns.setServers(customDns);
+  } catch (e) {
+    // Ignore if not supported
+  }
+}
+
 const mongoose = require('mongoose');
 const User = require('./models/User');
 
